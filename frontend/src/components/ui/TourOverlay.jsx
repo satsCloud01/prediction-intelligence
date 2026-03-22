@@ -1,194 +1,164 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { X, ChevronLeft, ChevronRight, Lightbulb, MousePointerClick } from 'lucide-react'
 
 export default function TourOverlay({ step, currentStep, totalSteps, onNext, onPrev, onClose }) {
-  const tooltipRef = useRef(null)
-  const [pos, setPos] = useState({ top: 0, left: 0, width: 0, height: 0 })
-  const [placement, setPlacement] = useState('below')
+  const [rect, setRect] = useState(null)
 
   const measure = useCallback(() => {
-    if (!step?.target) return
+    if (!step?.target) { setRect(null); return }
     const el = document.querySelector(step.target)
-    if (!el) return
-
-    const rect = el.getBoundingClientRect()
-    const pad = 8
-    const newPos = {
-      top: rect.top + window.scrollY - pad,
-      left: rect.left - pad,
-      width: rect.width + pad * 2,
-      height: rect.height + pad * 2,
-    }
-    setPos(newPos)
-
-    // Decide placement: if target is in top half, tooltip goes below; else above
-    const targetMid = rect.top + rect.height / 2
-    setPlacement(targetMid < window.innerHeight * 0.5 ? 'below' : 'above')
+    if (!el) { setRect(null); return }
+    const r = el.getBoundingClientRect()
+    setRect({ top: r.top, left: r.left, width: r.width, height: r.height })
   }, [step])
 
   useEffect(() => {
     if (!step?.target) return
     const el = document.querySelector(step.target)
-    if (!el) return
-
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-
-    const timer = setTimeout(measure, 400)
-    return () => clearTimeout(timer)
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const t = setTimeout(measure, 500)
+    return () => clearTimeout(t)
   }, [step, measure])
 
-  // Reposition on scroll/resize
   useEffect(() => {
-    if (!step?.target) return
-    const handler = () => measure()
-    window.addEventListener('scroll', handler, true)
-    window.addEventListener('resize', handler)
-    return () => {
-      window.removeEventListener('scroll', handler, true)
-      window.removeEventListener('resize', handler)
-    }
+    if (!step) return
+    window.addEventListener('scroll', measure, true)
+    window.addEventListener('resize', measure)
+    return () => { window.removeEventListener('scroll', measure, true); window.removeEventListener('resize', measure) }
   }, [step, measure])
+
+  // Prevent body scroll while tour is active
+  useEffect(() => {
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = '' }
+  }, [])
 
   if (!step) return null
 
-  const scrollY = typeof window !== 'undefined' ? window.scrollY : 0
-  const tooltipTop = placement === 'below'
-    ? pos.top - scrollY + pos.height + 16
-    : pos.top - scrollY - 16
-  const tooltipLeft = Math.max(16, Math.min(pos.left, (typeof window !== 'undefined' ? window.innerWidth : 800) - 420))
+  const pad = 10
+  const cutout = rect ? {
+    x: rect.left - pad,
+    y: rect.top - pad,
+    w: rect.width + pad * 2,
+    h: rect.height + pad * 2,
+  } : null
 
-  return (
-    <div className="fixed inset-0 z-[9999]" onClick={e => e.stopPropagation()}>
-      {/* SVG mask overlay with cutout */}
-      <svg className="absolute inset-0 w-full h-full" style={{ pointerEvents: 'none' }}>
+  const placement = rect && rect.top > window.innerHeight * 0.5 ? 'above' : 'below'
+  const ttTop = cutout
+    ? placement === 'below' ? cutout.y + cutout.h + 16 : cutout.y - 16
+    : window.innerHeight / 2 - 150
+  const ttLeft = cutout
+    ? Math.max(16, Math.min(cutout.x, window.innerWidth - 420))
+    : Math.max(16, window.innerWidth / 2 - 200)
+
+  const overlay = (
+    <div
+      style={{ position: 'fixed', inset: 0, zIndex: 100000 }}
+      onMouseDown={e => e.stopPropagation()}
+      onClick={e => e.stopPropagation()}
+    >
+      {/* Dark backdrop with cutout */}
+      <svg width="100%" height="100%" style={{ position: 'absolute', inset: 0 }}>
         <defs>
-          <mask id="tour-mask">
+          <mask id="tour-mask-v2">
             <rect x="0" y="0" width="100%" height="100%" fill="white" />
-            <rect
-              x={pos.left}
-              y={pos.top - scrollY}
-              width={pos.width}
-              height={pos.height}
-              rx="8"
-              fill="black"
-            />
+            {cutout && <rect x={cutout.x} y={cutout.y} width={cutout.w} height={cutout.h} rx="10" fill="black" />}
           </mask>
         </defs>
-        <rect
-          x="0" y="0" width="100%" height="100%"
-          fill="rgba(0,0,0,0.6)"
-          mask="url(#tour-mask)"
-          style={{ pointerEvents: 'all', cursor: 'default' }}
-        />
+        <rect x="0" y="0" width="100%" height="100%" fill="rgba(0,0,0,0.55)" mask="url(#tour-mask-v2)" />
       </svg>
 
-      {/* Highlight ring around target */}
-      <div
-        className="absolute rounded-lg pointer-events-none"
-        style={{
-          top: pos.top - scrollY,
-          left: pos.left,
-          width: pos.width,
-          height: pos.height,
+      {/* Gold highlight ring */}
+      {cutout && (
+        <div style={{
+          position: 'absolute', top: cutout.y, left: cutout.x,
+          width: cutout.w, height: cutout.h, borderRadius: 10,
           border: '2px solid #c8a96e',
-          boxShadow: '0 0 0 4px rgba(200,169,110,0.25), 0 0 20px rgba(200,169,110,0.15)',
-        }}
-      />
+          boxShadow: '0 0 0 4px rgba(200,169,110,0.2), 0 0 24px rgba(200,169,110,0.12)',
+          pointerEvents: 'none',
+        }} />
+      )}
 
-      {/* Tooltip card */}
+      {/* Tooltip */}
       <div
-        ref={tooltipRef}
-        className="absolute z-[10000] rounded-xl shadow-2xl max-w-md"
         style={{
-          top: tooltipTop,
-          left: tooltipLeft,
+          position: 'absolute',
+          top: ttTop,
+          left: ttLeft,
           transform: placement === 'above' ? 'translateY(-100%)' : undefined,
-          background: '#ffffff',
+          width: 400,
+          maxWidth: 'calc(100vw - 32px)',
+          background: '#fff',
           border: '1px solid rgba(21,32,64,0.12)',
           borderTop: '3px solid #c8a96e',
-          padding: '20px',
+          borderRadius: 12,
+          padding: 20,
+          boxShadow: '0 12px 40px rgba(0,0,0,0.15)',
+          zIndex: 100001,
         }}
       >
-        {/* Step counter + close */}
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-xs font-semibold" style={{ color: '#c8a96e' }}>
-            Step {currentStep + 1} of {totalSteps}
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#c8a96e', letterSpacing: 1 }}>
+            STEP {currentStep + 1} OF {totalSteps}
           </span>
-          <button
-            onClick={onClose}
-            className="hover:opacity-70 transition-opacity"
-            style={{ color: '#8a93a6' }}
-          >
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8a93a6', padding: 4 }}>
             <X size={16} />
           </button>
         </div>
 
-        {/* Title + content */}
-        <h3 className="text-lg font-bold mb-2" style={{ color: '#152040', fontFamily: "'Playfair Display', serif" }}>
+        {/* Title */}
+        <h3 style={{ fontSize: 18, fontWeight: 700, color: '#152040', fontFamily: "'Playfair Display', serif", marginBottom: 8 }}>
           {step.title}
         </h3>
-        <p className="text-sm leading-relaxed mb-3" style={{ color: '#4a5568' }}>
+        <p style={{ fontSize: 14, lineHeight: 1.6, color: '#4a5568', marginBottom: 12 }}>
           {step.content}
         </p>
 
-        {/* Try This Example */}
+        {/* Try This */}
         {step.example && (
-          <div
-            className="rounded-lg p-3 mb-3"
-            style={{ background: 'rgba(200,169,110,0.08)', border: '1px solid rgba(200,169,110,0.2)' }}
-          >
-            <div className="flex items-center gap-1.5 text-xs font-semibold mb-1" style={{ color: '#b8942e' }}>
-              <MousePointerClick size={12} /> Try This Example
+          <div style={{ background: 'rgba(200,169,110,0.08)', border: '1px solid rgba(200,169,110,0.2)', borderRadius: 8, padding: 12, marginBottom: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: '#b8942e', marginBottom: 4 }}>
+              <MousePointerClick size={12} /> TRY THIS EXAMPLE
             </div>
-            <p className="text-xs" style={{ color: '#4a5568' }}>{step.example}</p>
+            <p style={{ fontSize: 12, color: '#4a5568', margin: 0 }}>{step.example}</p>
           </div>
         )}
 
         {/* Pro Tip */}
         {step.proTip && (
-          <div
-            className="rounded-lg p-3 mb-3"
-            style={{ background: 'rgba(21,32,64,0.04)', border: '1px solid rgba(21,32,64,0.1)' }}
-          >
-            <div className="flex items-center gap-1.5 text-xs font-semibold mb-1" style={{ color: '#2563eb' }}>
-              <Lightbulb size={12} /> Pro Tip
+          <div style={{ background: 'rgba(21,32,64,0.04)', border: '1px solid rgba(21,32,64,0.1)', borderRadius: 8, padding: 12, marginBottom: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: '#2563eb', marginBottom: 4 }}>
+              <Lightbulb size={12} /> PRO TIP
             </div>
-            <p className="text-xs" style={{ color: '#4a5568' }}>{step.proTip}</p>
+            <p style={{ fontSize: 12, color: '#4a5568', margin: 0 }}>{step.proTip}</p>
           </div>
         )}
 
-        {/* Navigation */}
-        <div className="flex items-center justify-between mt-4">
+        {/* Nav */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
           <button
             onClick={onPrev}
             disabled={currentStep === 0}
-            className="flex items-center gap-1 text-sm transition-colors disabled:opacity-30"
-            style={{ color: '#8a93a6' }}
+            style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, color: currentStep === 0 ? '#ccc' : '#8a93a6', background: 'none', border: 'none', cursor: currentStep === 0 ? 'default' : 'pointer' }}
           >
             <ChevronLeft size={16} /> Back
           </button>
 
-          {/* Progress dots */}
-          <div className="flex gap-1.5">
+          {/* Dots */}
+          <div style={{ display: 'flex', gap: 5 }}>
             {Array.from({ length: totalSteps }).map((_, i) => (
-              <div
-                key={i}
-                className="w-2 h-2 rounded-full transition-colors"
-                style={{
-                  background: i === currentStep
-                    ? '#c8a96e'
-                    : i < currentStep
-                      ? 'rgba(200,169,110,0.4)'
-                      : 'rgba(21,32,64,0.12)',
-                }}
-              />
+              <div key={i} style={{
+                width: 7, height: 7, borderRadius: '50%',
+                background: i === currentStep ? '#c8a96e' : i < currentStep ? 'rgba(200,169,110,0.4)' : 'rgba(21,32,64,0.12)',
+              }} />
             ))}
           </div>
 
           <button
             onClick={onNext}
-            className="flex items-center gap-1 text-sm font-medium transition-colors"
-            style={{ color: '#c8a96e' }}
+            style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, fontWeight: 600, color: '#c8a96e', background: 'none', border: 'none', cursor: 'pointer' }}
           >
             {currentStep === totalSteps - 1 ? 'Finish' : 'Next'} <ChevronRight size={16} />
           </button>
@@ -196,12 +166,8 @@ export default function TourOverlay({ step, currentStep, totalSteps, onNext, onP
 
         {/* Skip */}
         {currentStep < totalSteps - 1 && (
-          <div className="text-center mt-3">
-            <button
-              onClick={onClose}
-              className="text-xs hover:underline transition-colors"
-              style={{ color: '#8a93a6' }}
-            >
+          <div style={{ textAlign: 'center', marginTop: 10 }}>
+            <button onClick={onClose} style={{ fontSize: 11, color: '#8a93a6', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
               Skip Tour
             </button>
           </div>
@@ -209,4 +175,6 @@ export default function TourOverlay({ step, currentStep, totalSteps, onNext, onP
       </div>
     </div>
   )
+
+  return createPortal(overlay, document.body)
 }
