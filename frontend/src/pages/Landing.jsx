@@ -172,7 +172,7 @@ export default function Landing() {
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={() => tour.start()}
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); tour.start(); }}
               className="flex items-center gap-2 text-sm px-5 py-2.5 rounded-lg font-medium transition-all"
               style={{
                 color: '#c8a96e',
