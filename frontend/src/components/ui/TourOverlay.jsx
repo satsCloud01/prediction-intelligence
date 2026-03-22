@@ -51,12 +51,14 @@ export default function TourOverlay({ step, currentStep, totalSteps, onNext, onP
 
   if (!step) return null
 
-  const tooltipStyle = placement === 'below'
-    ? { top: pos.top + pos.height + 16, left: Math.max(16, Math.min(pos.left, window.innerWidth - 420)) }
-    : { top: pos.top - 16, left: Math.max(16, Math.min(pos.left, window.innerWidth - 420)), transform: 'translateY(-100%)' }
+  const scrollY = typeof window !== 'undefined' ? window.scrollY : 0
+  const tooltipTop = placement === 'below'
+    ? pos.top - scrollY + pos.height + 16
+    : pos.top - scrollY - 16
+  const tooltipLeft = Math.max(16, Math.min(pos.left, (typeof window !== 'undefined' ? window.innerWidth : 800) - 420))
 
   return (
-    <div className="fixed inset-0 z-[9999]">
+    <div className="fixed inset-0 z-[9999]" onClick={e => e.stopPropagation()}>
       {/* SVG mask overlay with cutout */}
       <svg className="absolute inset-0 w-full h-full" style={{ pointerEvents: 'none' }}>
         <defs>
@@ -64,7 +66,7 @@ export default function TourOverlay({ step, currentStep, totalSteps, onNext, onP
             <rect x="0" y="0" width="100%" height="100%" fill="white" />
             <rect
               x={pos.left}
-              y={pos.top - window.scrollY}
+              y={pos.top - scrollY}
               width={pos.width}
               height={pos.height}
               rx="8"
@@ -77,7 +79,6 @@ export default function TourOverlay({ step, currentStep, totalSteps, onNext, onP
           fill="rgba(0,0,0,0.6)"
           mask="url(#tour-mask)"
           style={{ pointerEvents: 'all', cursor: 'default' }}
-          onClick={onClose}
         />
       </svg>
 
@@ -85,7 +86,7 @@ export default function TourOverlay({ step, currentStep, totalSteps, onNext, onP
       <div
         className="absolute rounded-lg pointer-events-none"
         style={{
-          top: pos.top - window.scrollY,
+          top: pos.top - scrollY,
           left: pos.left,
           width: pos.width,
           height: pos.height,
@@ -99,10 +100,9 @@ export default function TourOverlay({ step, currentStep, totalSteps, onNext, onP
         ref={tooltipRef}
         className="absolute z-[10000] rounded-xl shadow-2xl max-w-md"
         style={{
-          ...tooltipStyle,
-          top: placement === 'below'
-            ? pos.top - window.scrollY + pos.height + 16
-            : pos.top - window.scrollY - 16,
+          top: tooltipTop,
+          left: tooltipLeft,
+          transform: placement === 'above' ? 'translateY(-100%)' : undefined,
           background: '#ffffff',
           border: '1px solid rgba(21,32,64,0.12)',
           borderTop: '3px solid #c8a96e',
